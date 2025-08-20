@@ -2,10 +2,16 @@
 
 ## Как запустить
 
-Запускаем mongodb и приложение
+Запускаем mongodb, Redis и приложение
 
 ```shell
 docker compose up -d
+```
+
+Запускаем настройку шардирования и репликации
+
+```shell
+./scripts/shard-init.sh
 ```
 
 Заполняем mongodb данными
