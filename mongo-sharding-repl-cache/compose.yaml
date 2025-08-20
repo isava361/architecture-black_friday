@@ -1,0 +1,162 @@
+name: mongo-sharding-repl-cache
+
+services:
+  # конфигурационный сервер
+  configsvr:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: configSrv
+    restart: always
+    ports:
+      - "27017:27017"
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.10
+    command: ["mongod", "--configsvr", "--replSet", "config_server", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - configdb:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --port 27017 --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  # шард 1
+  shard1:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: shard1
+    restart: always
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.9
+    command: ["mongod", "--shardsvr", "--replSet", "shard1", "--bind_ip_all", "--port", "27018"]
+    volumes:
+      - shard1db:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --port 27018 --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  shard1-2:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: shard1-2
+    restart: always
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.5
+    command: ["mongod", "--shardsvr", "--replSet", "shard1", "--bind_ip_all", "--port", "27018"]
+    volumes:
+      - shard1-2db:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --port 27018 --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  # шард 2
+  shard2:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: shard2
+    restart: always
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.8
+    command: ["mongod", "--shardsvr", "--replSet", "shard2", "--bind_ip_all", "--port", "27019"]
+    volumes:
+      - shard2db:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --port 27019 --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  shard2-2:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: shard2-2
+    restart: always
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.4
+    command: ["mongod", "--shardsvr", "--replSet", "shard2", "--bind_ip_all", "--port", "27019"]
+    volumes:
+      - shard2-2db:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --port 27019 --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+
+  # роутер
+  mongos_router:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: mongos_router
+    depends_on:
+      configsvr:
+        condition: service_healthy
+    restart: always
+    ports:
+      - "27020:27020"
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.7
+    command: ["mongos", "--configdb", "config_server/configSrv:27017", "--bind_ip_all", "--port", "27020"]
+    healthcheck:
+        test: ["CMD-SHELL", "mongosh --quiet --port 27020 --eval 'db.runCommand({ ping: 1 }).ok' | grep 1 || exit 1"]
+        interval: 5s
+        timeout: 5s
+        retries: 60
+        start_period: 10s
+
+  # Redis
+  redis_1:
+   image: "redis:latest"
+   container_name: redis_1
+   ports:
+     - "6379"
+   volumes:
+     - redis_1_data:/data
+     - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+   command: [ "redis-server", "/usr/local/etc/redis/redis.conf" ]
+   networks:
+     app-network:
+        ipv4_address: 173.17.0.2
+
+
+  # приложение
+  pymongo_api:
+    container_name: pymongo_api
+    restart: always
+    build:
+      context: api_app
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      MONGODB_URL: "mongodb://mongos_router:27020/?retryWrites=true&w=majority"
+      MONGODB_DATABASE_NAME: "somedb"
+      REDIS_URL: "redis://redis_1:6379"
+    networks:
+      app-network:
+        ipv4_address: 173.17.0.6
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 173.17.0.0/16
+
+volumes:
+  configdb:
+  shard1db:
+  shard2db:
+  shard1-2db:
+  shard2-2db:
+  redis_1_data: {}
